@@ -1,0 +1,94 @@
+### Download 1000Genomes data
+### 04/03/2020
+
+cd ~/brc_scratch/data/get_1000g
+
+module load apps/samtools/1.9.0-singularity
+
+######## SOURCE https://www.biostars.org/p/335605/
+
+prefix="ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/ALL.chr" ;
+
+suffix=".phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz" ;
+
+for chr in {1..22} X,Y; do
+
+    wget "${prefix}""${chr}""${suffix}" "${prefix}""${chr}""${suffix}".tbi ;
+    
+done
+
+wget ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/working/20130606_sample_info/20130606_g1k.ped ;
+
+wget http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/human_g1k_v37.fasta.gz ;
+
+wget http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/human_g1k_v37.fasta.fai ;
+
+gunzip human_g1k_v37.fasta.gz ;
+
+#RUN JOB
+
+sbatch run_bcftools_1000g_processing.sh
+
+##Once job has finished
+
+for chr in {1..22}; do
+    plink --noweb \
+      --bcf ALL.chr"${chr}".phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.bcf \
+      --keep-allele-order \
+      --vcf-idspace-to _ \
+      --const-fid \
+      --allow-extra-chr 0 \
+      --split-x b37 no-fail \
+      --make-bed \
+      --out ALL.chr"${chr}".phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes ;
+done
+
+rm *chr*.vcf.gz
+rm *.vcf.gz.tbi
+
+#grep abc *bcf* > list_bcfs_tmp.txt
+#sed -i -e 's/Binary file //g' list_bcfs_tmp.txt
+
+gzip *bcf*
+
+#for chr in {1..22}; do
+#    plink --noweb \
+#      --bfile ALL.chr"${chr}".phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes \
+#      --maf 0.001 \
+#      --make-bed \
+#      --out ALL.chr"${chr}".phase3_shapeit2_mvncall_integrated_v5a.20130502.maf.genotypes ;
+
+    #plink --noweb \
+    #  --bfile ALL.chr"${chr}".phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes \
+    #  --extract ALL.chr"${chr}".phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.prune.in \
+    #  --make-bed \
+    #  --out ALL.chr"${chr}".phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes ;
+#done
+
+#prepare list of files to merge across chromosomes
+find . -name "*.genotypes.bim" > ForMerge.list ;
+
+sed -i 's/.bim//g' ForMerge.list ;
+sed -i 's+./++g' ForMerge.list ;
+
+
+#merge in plink - #high memory node required (30GB)
+plink --merge-list ForMerge.list --out merged_1000g_phase3 ;
+
+rm *20130502.genotypes.bed
+rm *20130502.genotypes.bim
+rm *20130502.genotypes.fam
+rm *.nosex
+
+cd ~/brc_scratch/data/get_1000g
+
+
+#also create a pruned dataset
+
+plink --bfile merged_1000g_maf0001_phase3 --indep-pairwise 50 5 0.001 --out merged_1000g_maf0001_phase3_clumped
+
+
+plink --bfile merged_1000g_maf0001_phase3 --extract merged_1000g_maf0001_phase3_clumped.prune.in --make-bed --out merged_1000g_maf0001_phase3_pruned
+
+
+plink --bfile merged_1000g_maf0001_phase3_pruned --freq --out merged_1000g_maf0001_phase3_pruned
